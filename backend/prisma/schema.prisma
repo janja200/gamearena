@@ -1,0 +1,355 @@
+// Prisma schema for MongoDB
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Enums
+enum TxType {
+  DEPOSIT
+  WITHDRAWAL
+  ENTRY_FEE
+  PRIZE
+  REFUND
+  TRANSFER
+}
+
+enum Level {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  EXPERT
+}
+
+enum GameType {
+  ACTION
+  ADVENTURE
+  PUZZLE
+  STRATEGY
+  RACING
+  SPORTS
+  RPG
+  SIMULATION
+  ARCADE
+  TRIVIA
+  CARD
+  BOARD
+}
+
+enum CompetitionStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELED
+}
+
+enum Privacy {
+  PUBLIC
+  PRIVATE
+}
+
+enum PendingTransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+// Models
+model User {
+  id                    String               @id @default(auto()) @map("_id") @db.ObjectId
+  email                 String               @unique
+  username              String               @unique
+  isActive              Boolean              @default(true)
+  isAdmin               Boolean              @default(false)
+  lastLoginAt           DateTime?
+  passwordHash          String
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  profile               Profile?
+  wallet                Wallet?
+  competitionsCreated   Competition[]        @relation("CreatorCompetitions")
+  competitionPlayers    CompetitionPlayer[]
+  invites               Invite[]
+  sessions              Session[]
+  training              TrainingSession[]
+  pendingTransactions   PendingTransaction[]
+  b2cTransactions B2CTransaction[]
+  sentFriendRequests     FriendRequest[] @relation("SentRequests")
+  receivedFriendRequests FriendRequest[] @relation("ReceivedRequests")
+  gameHistory            GameHistory[]
+}
+
+model Profile {
+  id      String  @id @default(auto()) @map("_id") @db.ObjectId
+  userId  String  @unique
+  country String?
+  level   Level   @default(BEGINNER)
+  winRate Float   @default(0)
+  User    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Session {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String
+  tokenId   String   @unique
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Wallet {
+  id      String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId  String        @unique
+  balance Int           @default(2000)
+  User    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tx      Transaction[]
+
+  @@index([balance])
+}
+
+model Transaction {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  walletId   String
+  type       TxType
+  amount     Int
+  meta       Json?
+  createdAt  DateTime @default(now())
+  Wallet     Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  b2cTransaction B2CTransaction? @relation("B2C_Transaction")
+
+  @@index([walletId, type])
+  @@index([type, createdAt])
+  @@index([createdAt])
+}
+
+
+
+model PendingTransaction {
+  id                 String                   @id @default(auto()) @map("_id") @db.ObjectId
+  userId             String
+  checkoutRequestId  String                   @unique
+  merchantRequestId  String
+  phone              String
+  amount             Int
+  type               TxType
+  status             PendingTransactionStatus @default(PENDING)
+  mpesaReceiptNumber String?
+  failureReason      String?
+  completedAt        DateTime?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  User               User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([status, createdAt])
+}
+
+model B2CTransaction {
+  id                       String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId                   String
+  phone                    String
+  amount                   Int
+  conversationId           String   @unique
+  originatorConversationId String?
+  mpesaReceiptId           String?
+  status                   String   @default("PENDING")
+  resultCode               Int?
+  resultDesc               String?
+  transactionId            String?  @unique
+  createdAt                DateTime @default(now())
+  completedAt              DateTime?
+
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transaction Transaction? @relation("B2C_Transaction", fields: [transactionId], references: [id], onDelete: NoAction)
+
+  @@index([userId])
+  @@index([status])
+  @@index([status, createdAt])
+}
+
+
+model MpesaCallback {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  transactionType    String   // STK, B2C, B2C_TIMEOUT
+  merchantRequestId  String?
+  checkoutRequestId  String?
+  resultCode         Int
+  resultDesc         String?
+  callbackMetadata   Json?
+  processed          Boolean  @default(false)
+  processedAt        DateTime?
+  createdAt          DateTime @default(now())
+
+  @@index([checkoutRequestId])
+  @@index([merchantRequestId])
+  @@index([transactionType])
+  @@index([processed])
+  @@index([processed, transactionType])
+}
+model Game {
+  id           String        @id @default(auto()) @map("_id") @db.ObjectId
+  name         String        @unique
+  description  String?
+  gameType     GameType
+  level        Level
+  minPlayers   Int           @default(1)
+  maxPlayers   Int           @default(100)
+  minPlayTime  Int
+  maxPlayTime  Int
+  minEntryFee  Int           @default(0)
+  isPopular    Boolean       @default(false)
+  imageUrl     String?
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  competitions Competition[]
+
+  @@index([gameType])
+  @@index([level])
+  @@index([isActive, isPopular])
+}
+
+model Competition {
+  id             String              @id @default(auto()) @map("_id") @db.ObjectId
+  code           String              @unique
+  title          String
+  creatorId      String
+  gameId         String
+  privacy        Privacy             @default(PRIVATE)
+  maxPlayers     Int
+  entryFee       Int
+  totalPrizePool Int                 @default(0)
+  status         CompetitionStatus   @default(UPCOMING)
+  startsAt       DateTime?
+  endsAt         DateTime?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  creator        User                @relation("CreatorCompetitions", fields: [creatorId], references: [id])
+  game           Game                @relation(fields: [gameId], references: [id])
+  players        CompetitionPlayer[]
+  matches        Match[]
+  invites        Invite[]
+
+  @@index([gameId])
+  @@index([status])
+  @@index([creatorId])
+  @@index([privacy, status])
+  @@index([status, endsAt]) 
+  @@index([endsAt]) 
+  @@index([startsAt]) 
+  @@index([status, startsAt])
+}
+
+model CompetitionPlayer {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  competitionId String
+  userId        String
+  joinedAt      DateTime  @default(now())
+  paid          Boolean   @default(false)
+  score         Int       @default(0)
+  hasPlayed     Boolean   @default(false)
+  playedAt      DateTime?
+  rank          Int?
+
+  Competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  User        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, competitionId])
+  @@index([userId])
+  @@index([competitionId, score])
+  @@index([competitionId, rank])
+  @@index([competitionId, hasPlayed])
+}
+
+model Match {
+  id            String      @id @default(auto()) @map("_id") @db.ObjectId
+  competitionId String
+  status        String      @default("PENDING")
+  startedAt     DateTime?
+  endedAt       DateTime?
+  result        Json?
+  Competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@index([competitionId])
+  @@index([status])
+}
+
+model Invite {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  competitionId   String
+  inviterId       String
+  inviteeId       String?
+  inviteeUsername String?
+  code            String   @unique
+  accepted        Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  Competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  inviter     User        @relation(fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@index([competitionId])
+  @@index([inviterId])
+  @@index([inviteeId])
+  @@index([inviteeUsername])
+}
+
+model FriendRequest {
+  id         String              @id @default(auto()) @map("_id") @db.ObjectId
+  senderId   String
+  receiverId String
+  status     FriendRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  sender   User @relation("SentRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("ReceivedRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([status])
+}
+
+model GameHistory {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String
+  playedWithId  String
+  competitionId String?
+  gameType      String
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([playedWithId])
+  @@index([userId, playedWithId])
+}
+
+model TrainingSession {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String
+  gameName  String
+  score     Int      @default(0)
+  duration  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  User User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([gameName])
+}
+
