@@ -1,6 +1,5 @@
 import express from "express";
 import cookieParser from "cookie-parser";
-import cors from "cors";
 import helmet from "helmet";
 import http from "http";
 import { Server } from "socket.io";
@@ -9,73 +8,39 @@ import { routes } from "./routes/index.js";
 import { errorHandler } from "./middleware/error.js";
 import { registerSockets } from "./sockets/index.js";
 import { startCleanupJob } from "./jobs/cleanup.js";
-import path from "path"
+import path from "path";
+
 const app = express();
-const __dirname=path.resolve();
+const __dirname = path.resolve();
+
 // Security middleware
 app.use(helmet({
-    crossOriginEmbedderPolicy: false,
-    contentSecurityPolicy: false
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false,
 }));
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
 
-// app.use(cors({ 
-//   origin: (origin, callback) => {
-//     if (!origin) return callback(null, true);
-//     if (env.clientOrigins.includes(origin)) {
-//       return callback(null, true);
-//     } else {
-//       return callback(new Error("Not allowed by CORS"));
-//     }
-//   }, 
-//   credentials: true,
-//   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-//   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
-// }));
-
-app.use(cors({
-    origin: (origin, callback) => {
-        // FIX: Only allow specified origins, reject requests with no origin in production
-        if (!origin && process.env.NODE_ENV === 'production') {
-            return callback(new Error("Not allowed by CORS - no origin"));
-        }
-
-        if (!origin && process.env.NODE_ENV !== 'production') {
-            return callback(null, true); // Allow no origin only in development
-        }
-
-        if (env.clientOrigins.includes(origin)) {
-            return callback(null, true);
-        } else {
-            return callback(new Error("Not allowed by CORS"));
-        }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
-}));
-
-// Helpful for secure cookies behind proxies (Heroku/Render/Nginx)
-app.set('trust proxy', 1);
+// Trust proxy for secure cookies (if using reverse proxy)
+app.set("trust proxy", 1);
 
 // Request logging middleware
 app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-    next();
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
 });
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-    res.json({
-        status: "ok",
-        timestamp: new Date().toISOString(),
-        version: "2.0.0",
-        environment: process.env.NODE_ENV || "development"
-    });
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    version: "2.0.0",
+    environment: process.env.NODE_ENV || "development",
+  });
 });
 
 // API routes
@@ -83,53 +48,62 @@ app.use("/api", routes);
 
 // Development utility endpoints
 if (process.env.NODE_ENV === "development") {
-    app.get("/api/dev/reset-competitions", async (req, res) => {
-        try {
-            const { prisma } = await import("./prisma.js");
-            await prisma.competitionPlayer.deleteMany();
-            await prisma.competition.deleteMany();
-            res.json({ message: "All competitions reset" });
-        } catch (error) {
-            res.status(500).json({ error: error.message });
-        }
-    });
+  app.get("/api/dev/reset-competitions", async (req, res) => {
+    try {
+      const { prisma } = await import("./prisma.js");
+      await prisma.competitionPlayer.deleteMany();
+      await prisma.competition.deleteMany();
+      res.json({ message: "All competitions reset" });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
-    app.get("/api/dev/seed-games", async (req, res) => {
-        try {
-            const { prisma } = await import("./prisma.js");
+  app.get("/api/dev/seed-games", async (req, res) => {
+    try {
+      const { prisma } = await import("./prisma.js");
+      const games = [
+        { name: "Snake", minEntryFee: 100 },
+        { name: "Tetris", minEntryFee: 150 },
+        { name: "Pac-Man", minEntryFee: 200 },
+        { name: "Space Invaders", minEntryFee: 100 },
+        { name: "Breakout", minEntryFee: 100 },
+      ];
 
-            const games = [
-                { name: "Snake", minEntryFee: 100 },
-                { name: "Tetris", minEntryFee: 150 },
-                { name: "Pac-Man", minEntryFee: 200 },
-                { name: "Space Invaders", minEntryFee: 100 },
-                { name: "Breakout", minEntryFee: 100 }
-            ];
+      for (const game of games) {
+        await prisma.game.upsert({
+          where: { name: game.name },
+          update: {},
+          create: game,
+        });
+      }
 
-            for (const game of games) {
-                await prisma.game.upsert({
-                    where: { name: game.name },
-                    update: {},
-                    create: game
-                });
-            }
+      res.json({ message: "Games seeded successfully", games });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+}
 
-            res.json({ message: "Games seeded successfully", games });
-        } catch (error) {
-            res.status(500).json({ error: error.message });
-        }
-    });
+// Serve frontend in production
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(path.join(__dirname, "../frontend/dist")));
+
+  // Catch-all route for SPA
+  app.get(/.*/, (req, res) => {
+    res.sendFile(path.join(__dirname, "../frontend/dist/index.html"));
+  });
 }
 
 // 404 handler
 app.use((req, res) => {
-    res.status(404).json({
-        error: "NOT_FOUND",
-        message: `Route ${req.method} ${req.originalUrl} not found`
-    });
+  res.status(404).json({
+    error: "NOT_FOUND",
+    message: `Route ${req.method} ${req.originalUrl} not found`,
+  });
 });
 
-// Error handling middleware (must be last)
+// Global error handler
 app.use(errorHandler);
 
 // Create HTTP server
@@ -137,91 +111,62 @@ const server = http.createServer(app);
 
 // Socket.io setup
 const io = new Server(server, {
-    cors: {
-        origin: "http://localhost:5173",
-        // origin: env.clientOrigins,
-        credentials: true,
-        methods: ["GET", "POST"]
-    },
-    pingTimeout: 60000,
-    pingInterval: 25000
+  pingTimeout: 60000,
+  pingInterval: 25000,
 });
 
-// Register socket handlers
+// Register sockets
 registerSockets(io);
 
-// Make socket.io and userSockets available to controllers
-app.set('io', io);
-app.set('userSockets', io.userSockets);
+// Make socket.io accessible to controllers
+app.set("io", io);
+app.set("userSockets", io.userSockets);
 
 // Graceful shutdown
 const shutdown = async () => {
-    console.log("Shutting down gracefully...");
+  console.log("Shutting down gracefully...");
 
-    // Close server
-    server.close(() => {
-        console.log("HTTP server closed");
-    });
+  server.close(() => console.log("HTTP server closed"));
+  io.close(() => console.log("Socket.io closed"));
 
-    // Close socket connections
-    io.close(() => {
-        console.log("Socket.io server closed");
-    });
+  try {
+    const { prisma } = await import("./prisma.js");
+    await prisma.$disconnect();
+    console.log("Database disconnected");
+  } catch (error) {
+    console.error("Error closing database connection:", error);
+  }
 
-    // Close database connection
-    try {
-        const { prisma } = await import("./prisma.js");
-        await prisma.$disconnect();
-        console.log("Database connection closed");
-    } catch (error) {
-        console.error("Error closing database connection:", error);
-    }
-
-    process.exit(0);
+  process.exit(0);
 };
 
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection:", reason);
+});
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught Exception:", error);
+  process.exit(1);
 });
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-    process.exit(1);
-});
-if(process.env.NODE_ENV=="production"){
-    app.use(express.static(path.join(__dirname,"../frontend/dist")))
-    app.get("*",(req,res)=>{
-        res.sendFile(path.join(__dirname,"../frontend/dist/index.html"))
-    })
-}
 // Start server
 const startServer = async () => {
-    try {
-        // Test database connection
-        const { prisma } = await import("./prisma.js");
-        await prisma.$connect();
-        console.log("Database connected successfully");
+  try {
+    const { prisma } = await import("./prisma.js");
+    await prisma.$connect();
+    console.log("Database connected successfully");
 
-        server.listen(env.port, () => {
-            console.log(`🚀 Server running on http://localhost:${env.port}`);
-            console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
-            console.log(`🌐 Client origins: ${env.clientOrigins.join(", ")}`);
-            console.log(`🔒 Cookie secure: ${env.cookieSecure}`);
-            console.log(`🍪 Cookie domain: ${env.cookieDomain || "(host-only)"}`);
+    server.listen(env.port, () => {
+      console.log(`🚀 Server running on http://localhost:${env.port}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
 
-            // Start cron jobs
-            startCleanupJob(io);
-
-        });
-    } catch (error) {
-        console.error("Failed to start server:", error);
-        process.exit(1);
-    }
+      startCleanupJob(io);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
 };
 
-startServer(); 
+startServer();
