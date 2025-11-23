@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@prisma/client": "6.14.0",
-    "axios": "^1.11.0",
+    "axios": "^1.13.2",
+    "base-64": "^1.0.0",
     "bcryptjs": "2.4.3",
     "cookie-parser": "1.4.6",
     "cors": "2.8.5",
@@ -23,6 +24,7 @@
     "game": "file:..",
     "helmet": "7.1.0",
     "jsonwebtoken": "9.0.2",
+    "mongodb": "^7.0.0",
     "nanoid": "5.0.7",
     "node-cron": "^4.2.1",
     "socket.io": "4.8.1",
